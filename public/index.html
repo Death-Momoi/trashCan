@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>垃圾桶違規警報分析系統</title>
+    <!-- 引入 Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f6f9; }
+        h1 { text-align: center; color: #333; }
+        .chart-container { display: flex; flex-wrap: wrap; justify-content: space-around; gap: 20px; margin-top: 20px; }
+        .chart-box { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); width: 45%; min-width: 300px; }
+        .full-width { width: 95%; }
+    </style>
+</head>
+<body>
+
+    <h1>🗑️ 智慧垃圾桶違規警報即時數據分析</h1>
+    
+    <div class="chart-container">
+        <!-- 本週總計長條圖 -->
+        <div class="chart-box full-width">
+            <canvas id="barChart"></canvas>
+        </div>
+        <!-- 三個垃圾桶的獨立折線圖 -->
+        <div class="chart-box"><canvas id="lineChart1"></canvas></div>
+        <div class="chart-box"><canvas id="lineChart2"></canvas></div>
+        <div class="chart-box"><canvas id="lineChart3"></canvas></div>
+    </div>
+
+    <script>
+        // 初始化圖表變數
+        let barChart, lineCharts = {};
+
+        async function updateCharts() {
+            const response = await fetch('/api/data');
+            const data = await response.json();
+
+            // 初始化三個垃圾桶的計數
+            let counts = { 1: 0, 2: 0, 3: 0 };
+            // 用於折線圖的時間序列資料
+            let timeData = { 1: [], 2: [], 3: [] };
+
+            data.forEach(item => {
+                const bid = item.bin_id;
+                if (counts[bid] !== undefined) {
+                    counts[bid]++;
+                    const localTime = new Date(item.timestamp).toLocaleTimeString();
+                    timeData[bid].push({ x: localTime, y: counts[bid] }); // 累計趨勢
+                }
+            });
+
+            // 1. 更新長條圖 (本週各垃圾桶警報數量)
+            barChart.data.datasets[0].data = [counts[1], counts[2], counts[3]];
+            barChart.update();
+
+            // 2. 更新三個折線圖
+            [1, 2, 3].forEach(id => {
+                lineCharts[id].data.labels = timeData[id].map(d => d.x);
+                lineCharts[id].data.datasets[0].data = timeData[id].map(d => d.y);
+                lineCharts[id].update();
+            });
+        }
+
+        // 頁面載入時初始化圖表
+        window.onload = function() {
+            const ctxBar = document.getElementById('barChart').getContext('2d');
+            barChart = new Chart(ctxBar, {
+                type: 'bar',
+                data: {
+                    labels: ['1號垃圾桶', '2號垃圾桶', '3號垃圾桶'],
+                    datasets: [{ label: '本週違規警報次數', data: [0, 0, 0], backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56'] }]
+                },
+                options: { responsive: true }
+            });
+
+            [1, 2, 3].forEach(id => {
+                const ctxLine = document.getElementById(`lineChart${id}`).getContext('2d');
+                lineCharts[id] = new Chart(ctxLine, {
+                    type: 'line',
+                    data: { labels: [], datasets: [{ label: `${id}號垃圾桶 警報觸發趨勢(次數)`, data: [], borderColor: '#4BC0C0', tension: 0.1, fill: false }] },
+                    options: { responsive: true, scales: { x: { title: { display: true, text: '觸發時間' } } } }
+                });
+            });
+
+            // 每 5 秒自動刷新一次數據
+            updateCharts();
+            setInterval(updateCharts, 5000);
+        };
+    </script>
+</body>
+</html>
