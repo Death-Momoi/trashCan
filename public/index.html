@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>垃圾桶違規警報分析系統</title>
-    <!-- 引入 Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; background-color: lightblue; }
@@ -19,68 +18,98 @@
     <h1>🗑️ 智慧垃圾桶違規警報即時數據分析</h1>
     
     <div class="chart-container">
-        <!-- 本週總計長條圖 -->
         <div class="chart-box full-width">
             <canvas id="barChart"></canvas>
         </div>
-        <!-- 三個垃圾桶的獨立折線圖 -->
         <div class="chart-box"><canvas id="lineChart1"></canvas></div>
         <div class="chart-box"><canvas id="lineChart2"></canvas></div>
         <div class="chart-box"><canvas id="lineChart3"></canvas></div>
     </div>
 
     <script>
-        // 初始化圖表變數
         let barChart, lineCharts = {};
 
         async function updateCharts() {
-            const response = await fetch('/api/data');
-            const data = await response.json();
+            try {
+                const response = await fetch('/api/data');
+                const data = await response.json();
 
-            // 初始化三個垃圾桶的計數
-            let counts = { 1: 0, 2: 0, 3: 0 };
-            // 用於折線圖的時間序列資料
-            let timeData = { 1: [], 2: [], 3: [] };
+                // 初始化三個垃圾桶的「本日總計數」(給長條圖用)
+                let totalCounts = { 1: 0, 2: 0, 3: 0 };
+                // 用於折線圖的時間序列資料
+                let timeData = { 1: [], 2: [], 3: [] };
 
-            data.forEach(item => {
-                const bid = item.bin_id;
-                if (counts[bid] !== undefined) {
-                    counts[bid]++;
-                    const localTime = new Date(item.timestamp).toLocaleTimeString();
-                    timeData[bid].push({ x: localTime, y: counts[bid] }); // 累計趨勢
-                }
-            });
+                data.forEach(item => {
+                    const bid = item.bin_id;
+                    // 讀取後端傳來的 count，如果沒有這個值就當作 0
+                    const minuteCount = item.count || 0; 
 
-            // 1. 更新長條圖 (本週各垃圾桶警報數量)
-            barChart.data.datasets[0].data = [counts[1], counts[2], counts[3]];
-            barChart.update();
+                    if (totalCounts[bid] !== undefined) {
+                        // 1. 長條圖邏輯：把每一分鐘的次數加起來，算出本日總數
+                        totalCounts[bid] += minuteCount;
+                        
+                        // 2. 折線圖邏輯：取得 HH:mm 格式的時間
+                        const localTime = new Date(item.timestamp).toLocaleTimeString('zh-TW', { 
+                            hour: '2-digit', 
+                            minute: '2-digit', 
+                            hour12: false 
+                        });
+                        
+                        // 🌟 關鍵修復：這裡直接放 minuteCount，絕對不要再放 totalCounts 累加值！
+                        timeData[bid].push({ x: localTime, y: minuteCount }); 
+                    }
+                });
 
-            // 2. 更新三個折線圖
-            [1, 2, 3].forEach(id => {
-                lineCharts[id].data.labels = timeData[id].map(d => d.x);
-                lineCharts[id].data.datasets[0].data = timeData[id].map(d => d.y);
-                lineCharts[id].update();
-            });
+                // 更新長條圖 
+                barChart.data.datasets[0].data = [totalCounts[1], totalCounts[2], totalCounts[3]];
+                barChart.update();
+
+                // 更新三個折線圖
+                [1, 2, 3].forEach(id => {
+                    lineCharts[id].data.labels = timeData[id].map(d => d.x);
+                    lineCharts[id].data.datasets[0].data = timeData[id].map(d => d.y);
+                    lineCharts[id].update();
+                });
+            } catch (error) {
+                console.error("無法取得圖表資料:", error);
+            }
         }
 
-        // 頁面載入時初始化圖表
         window.onload = function() {
+            // 建立長條圖
             const ctxBar = document.getElementById('barChart').getContext('2d');
             barChart = new Chart(ctxBar, {
                 type: 'bar',
                 data: {
                     labels: ['1號垃圾桶', '2號垃圾桶', '3號垃圾桶'],
-                    datasets: [{ label: '本週違規警報次數', data: [0, 0, 0], backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56'] }]
+                    // 🌟 文字標題已改為「本日」
+                    datasets: [{ label: '本日違規警報次數', data: [0, 0, 0], backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56'] }]
                 },
-                options: { responsive: true }
+                options: { 
+                    responsive: true,
+                    scales: {
+                        y: { beginAtZero: true, ticks: { stepSize: 1 } } // 確保長條圖 Y 軸是整數
+                    }
+                }
             });
 
+            // 建立三個折線圖
             [1, 2, 3].forEach(id => {
                 const ctxLine = document.getElementById(`lineChart${id}`).getContext('2d');
                 lineCharts[id] = new Chart(ctxLine, {
                     type: 'line',
-                    data: { labels: [], datasets: [{ label: `${id}號垃圾桶 警報觸發趨勢(次數)`, data: [], borderColor: '#4BC0C0', tension: 0.1, fill: false }] },
-                    options: { responsive: true, scales: { x: { title: { display: true, text: '觸發時間' } } } }
+                    data: { labels: [], datasets: [{ label: `${id}號垃圾桶 每分鐘觸發次數`, data: [], borderColor: '#4BC0C0', tension: 0.1, fill: false }] },
+                    options: { 
+                        responsive: true, 
+                        scales: { 
+                            x: { title: { display: true, text: '時間 (HH:mm)' } },
+                            y: { 
+                                title: { display: true, text: '觸發次數' },
+                                beginAtZero: true,
+                                ticks: { stepSize: 1 } // 確保折線圖不會出現 0.5 次這種奇怪的數字
+                            }
+                        } 
+                    }
                 });
             });
 
